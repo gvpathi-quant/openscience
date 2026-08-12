@@ -1,0 +1,42 @@
+services:
+  openscience:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: openscience:latest
+    environment:
+      - OPENSCIENCE_BIN_PATH=${OPENSCIENCE_BIN_PATH:-/usr/local/bin/openscience-native}
+      - SKILLS_PATH=/app/backend/cli/skills
+      - OPENSCIENCE_INSTALL_SKILL_DEPS=${OPENSCIENCE_INSTALL_SKILL_DEPS:-0}
+      - SOCAT_PORT=${SANDBOX_PORT:-18080}
+      - PATH=/home/openscience/.venv/bin:/usr/local/bin:/usr/bin:/bin
+    volumes:
+      # Skills are documentation: mount read-only into the sandbox.
+      - ../backend/cli/skills:/app/backend/cli/skills:ro
+      # Writable, persistent sandbox user home (venv, cache, openscience data).
+      - openscience-home:/home/openscience
+    # Host port for the web UI. The openscience server only listens on 127.0.0.1
+    # inside its own namespace, so the entrypoint starts a socat proxy that binds
+    # this port on the container interface and forwards to the loopback server.
+    ports:
+      - "${SANDBOX_PORT:-18080}:${SANDBOX_PORT:-18080}"
+    restart: unless-stopped
+    command: ["serve", "--port", "8080", "--print-logs"]
+    healthcheck:
+      test: ["CMD-SHELL", "openscience --version || exit 1"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+    # Secure defaults: container never affects the host, and the kernel-visible
+    # surface is minimized. Writable state lives in the named volume above.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "1000:1000"
+
+volumes:
+  openscience-home:
