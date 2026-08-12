@@ -15,6 +15,11 @@ services:
       - ../backend/cli/skills:/app/backend/cli/skills:ro
       # Writable, persistent sandbox user home (venv, cache, openscience data).
       - openscience-home:/home/openscience
+      # Workspace: everything you save while working (projects, files, outputs)
+      # persists here in the named volume `docker_openscience-workspace`.
+      - workspace:/home/openscience/workspace
+    # The headless server and `exec` shells land in the workspace by default.
+    working_dir: /home/openscience/workspace
     # Host port for the web UI. The openscience server only listens on 127.0.0.1
     # inside its own namespace, so the entrypoint starts a socat proxy that binds
     # this port on the container interface and forwards to the loopback server.
@@ -27,16 +32,29 @@ services:
       interval: 1m
       timeout: 10s
       retries: 3
-    # Secure defaults: container never affects the host, and the kernel-visible
-    # surface is minimized. Writable state lives in the named volume above.
+    # Sandbox backend: the openscience execution sandbox uses bubblewrap (bwrap)
+    # mount/PID namespaces. On this Docker daemon that only works when:
+    #   - the container runs as root (Docker clears ALL capabilities for non-root
+    #     users at exec, and unprivileged user namespaces are host-restricted),
+    #   - CAP_SYS_ADMIN is granted (needed for mount/PID/net namespaces),
+    #   - seccomp/apparmor are unconfined (their defaults block the nested
+    #     namespace syscalls).
+    # Everything else stays sandboxed: read-only rootfs, tmpfs /tmp, and the two
+    # named volumes below.
+    user: "0:0"
     read_only: true
     tmpfs:
       - /tmp
-    security_opt:
-      - no-new-privileges:true
     cap_drop:
       - ALL
-    user: "1000:1000"
+    cap_add:
+      - SYS_ADMIN
+      - DAC_OVERRIDE
+      - DAC_READ_SEARCH
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
 
 volumes:
   openscience-home:
+  workspace:

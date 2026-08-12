@@ -33,6 +33,7 @@ RUN apt-get update \
         libgomp1 \
         build-essential \
         socat \
+        bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # uv - fast, correct Python package manager used by the skills themselves

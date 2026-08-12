@@ -1,16 +1,17 @@
-# Docker sandbox for OpenScience (secure defaults)
+# Docker sandbox for OpenScience
 
-Sandboxed Docker deployment for the `openscience` CLI. Everything runs inside
-the container as a non-root user against a read-only root filesystem, so it
-never touches the host machine.
+Sandboxed Docker deployment for the `openscience` CLI. Everything runs in an
+isolated container against a read-only root filesystem with dropped
+capabilities, so it never touches the host machine.
 
 Files:
 
 - `Dockerfile` — Debian (glibc) image with Python, Node, `uv`, git, curl, the
-  scientific build toolchain, and the prebuilt OpenScience runtime baked in
+  scientific build toolchain, `bubblewrap`, and the prebuilt OpenScience runtime
+  baked in
 - `docker-compose.yml` — sandbox with secure defaults
-- `entrypoint.sh` — creates a user-writable Python venv, installs skill
-  dependencies, then execs the CLI wrapper
+- `entrypoint.sh` — creates a writable Python venv, installs skill dependencies,
+  starts the host port proxy, then execs the CLI wrapper
 - `../scripts/install_skill_deps.sh` — reads each skill's `SKILL.md` frontmatter
   `dependencies:` and installs them into the venv with `uv`
 - `../.dockerignore` — keeps the build context small
@@ -25,9 +26,36 @@ Usage
 cd docker
 docker compose up --build -d        # build + start sandbox (headless server)
 docker compose logs -f openscience
-docker compose down                  # stop; named volume keeps sandbox state
-docker compose down -v               # wipe sandbox home entirely
+docker compose down                  # stop; named volumes keep sandbox state
+docker compose down -v               # wipe sandbox state (home + workspace)
 ```
+
+Persisting your work (volumes)
+
+Two named volumes back the sandbox and survive restarts (`down`/`up`):
+
+| Volume | Mount | What lives there |
+| --- | --- | --- |
+| `<project>_openscience-home` | `/home/openscience` | venv (skill deps), caches, `.openscience` config/logs |
+| `<project>_workspace` | `/home/openscience/workspace` | your working files, projects, and outputs |
+
+The workspace is also the container's working directory, so anything the server
+or an `exec` shell saves lands there. Find/list the volumes and copy files out:
+
+```bash
+docker volume ls | grep openscience
+docker compose cp openscience:/home/openscience/workspace/. ./my-workspace-copy
+```
+
+To use a host directory directly instead of the named workspace volume, replace
+the `- workspace:/home/openscience/workspace` line in `docker-compose.yml` with:
+
+```yaml
+      - /absolute/path/on/host:/home/openscience/workspace
+```
+
+(resolve `<project>` from `docker compose ls`; it defaults to the folder name of
+the compose file, i.e. `docker`.)
 
 Accessing the web UI
 
@@ -106,12 +134,33 @@ docker compose exec openscience uv pip install scikit-learn pandas
 
 Sandbox design
 
-- Runs as a non-root user; the container root filesystem is `read_only: true`.
-  Writable state (venv, caches, `.openscience` data) lives in the named volume
-  `openscience-home` mounted at `/home/openscience`.
-- All Linux capabilities dropped, `no-new-privileges` enabled.
+- Root filesystem is `read_only: true`; only `/tmp` (tmpfs) and the two named
+  volumes above are writable.
+- All Linux capabilities are dropped; only `SYS_ADMIN` (namespace/mount ops for
+  bubblewrap) and `DAC_OVERRIDE`/`DAC_READ_SEARCH` (access shared volume files)
+  are re-added.
+- The container runs as root (`user: "0:0"`). This is required for the bubblewrap
+  backend on this Docker daemon: it clears ALL capabilities for non-root users at
+  exec, and unprivileged user namespaces are restricted on the host. `seccomp`
+  and `apparmor` must also be `unconfined` or the nested-namespace syscalls are
+  blocked. The actual OS boundary is the container itself.
 - `tini` is PID 1 to reap child processes and forward signals.
 - Skills are mounted read-only at `/app/backend/cli/skills`.
+
+The OpenScience execution sandbox (bubblewrap)
+
+`openscience sandbox` confines agent shell commands to the workspace with
+`bubblewrap` mount/PID namespaces (and can deny network egress). It is enabled by
+default; verify with:
+
+```bash
+docker compose exec openscience openscience sandbox status
+#   backend:   bubblewrap (bwrap)
+docker compose exec openscience openscience sandbox test   # containment self-test
+```
+
+Self-test asserts writes stay inside the workspace, writes outside are blocked,
+and (in deny mode) no network egress — all pass in this image.
 
 Runtime notes
 
