@@ -18,32 +18,63 @@ Files:
 
 Usage
 
+> Run every `docker compose` command from the `docker/` directory (that is where
+> this project's compose file lives).
+
 ```bash
 cd docker
 docker compose up --build -d        # build + start sandbox (headless server)
-docker compose exec openscience openscience --version
 docker compose logs -f openscience
 docker compose down                  # stop; named volume keeps sandbox state
 docker compose down -v               # wipe sandbox home entirely
 ```
 
-The `serve` command runs the headless server bound to the container's localhost
-(`http://localhost:8080` inside the sandbox). Because the server is loopback-only
-by design, the entrypoint starts a small `socat` proxy inside the same network
-namespace that publishes the server on a unique host port
-(`${SANDBOX_PORT:-18080}` by default) so the web UI is reachable from your browser:
+Accessing the web UI
+
+The server binds to `127.0.0.1:8080` *inside* the container and is loopback-only
+by design, so it is **not** reachable on your host's port 8080. The entrypoint
+starts a `socat` proxy in the same network namespace that publishes it on the
+host port `${SANDBOX_PORT:-18080}` instead:
 
 ```bash
-open http://localhost:18080
+open http://localhost:18080        # <- host URL (not :8080)
 ```
 
-Pick a free port if 18080 is taken: `SANDBOX_PORT=19090 docker compose up -d`.
-Use `docker compose exec` to run commands inside the sandbox. To launch a one-off
-command instead of the long-running server:
+Pick a different host port if 18080 is taken (the proxy and the published port
+must match):
+
+```bash
+SANDBOX_PORT=19090 docker compose up -d
+open http://localhost:19090
+```
+
+Accessing the CLI
+
+The openscience CLI runs inside the sandbox. Interact with it without disturbing
+the running server via `exec` (you get an interactive shell per default):
+
+```bash
+docker compose exec openscience openscience --version
+docker compose exec openscience openscience agent list
+docker compose exec openscience openscience tools list
+```
+
+Drop into a shell inside the sandbox (venv with installed skill deps is already
+on `PATH`):
+
+```bash
+docker compose exec openscience bash
+```
+
+For a one-off command instead of the long-running server (starts a throwaway
+container for just that invocation):
 
 ```bash
 docker compose run --rm openscience --version
 ```
+
+Any `docker compose exec`/`run` starts with writes confined to the sandbox — the
+host machine is never touched.
 
 Why Debian and not Alpine
 
