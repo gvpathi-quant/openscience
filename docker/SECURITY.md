@@ -5,6 +5,39 @@ the deliberate relaxations we accepted, and why they were necessary.
 
 ---
 
+## Skill Set — No Offensive Content
+
+All 151 bundled skills are research / science / ML / data / cloud / visualization.
+Categories: biology, chemistry, physics, quantum, ML (training/inference),
+data engineering, databases, cloud compute, visualization, coding (ML/math/stats),
+scholar-evaluation, quantum, document-parsing, etc.
+
+**Zero offensive / pentesting / red-team / exploit / malware / reverse-engineering
+/ binary-exploitation / CTF / shellcode skills.** The skill set is purely
+constructive (research, analysis, modeling, visualization, cloud compute).
+Base image is Debian (glibc), not Kali — no offensive tooling installed.
+
+---
+
+## Sandbox Escape — Reality Check
+
+| Escape Vector | Status | Mitigation |
+|--------------|--------|------------|
+| Container breakout (kernel exploit) | Possible | Same kernel; mitigated by userns-remap (container root ≠ host root) |
+| Docker socket access | Blocked | No `/var/run/docker.sock` mounted |
+| Host filesystem | Blocked | `read_only` rootfs; only two named volumes writable |
+| Network egress | Open (by design) | No egress filter; add Cilium/iptables if needed |
+| Volume data | Mutable | Volumes are host-backed; compromise = volume corruption |
+| bubblewrap inner sandbox | Working | Verified: 3/3 self-test passes (write containment, network deny) |
+| Docker socket / host processes | No access | No `/var/run/docker.sock`, no `--pid=host`, no `--privileged` |
+
+**Bottom line:** The inner bubblewrap sandbox (what `openscience sandbox test`
+verifies) correctly confines agent commands to the workspace. The Docker
+container boundary adds another layer. The only realistic escape is a **kernel
+exploit** (same kernel) — the fundamental limit of any container sandbox.
+
+---
+
 ## Threat Model
 
 **Protected against:**
